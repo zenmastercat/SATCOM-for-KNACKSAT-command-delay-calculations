@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Satellite Telemetry Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #161f32;
+            --accent-color: #00d2ff;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --border-color: #2a3854;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header { text-align: center; margin-bottom: 2rem; }
+        header h1 { color: var(--accent-color); margin: 0; font-size: 2rem; }
+        header p { color: var(--text-muted); margin-top: 0.5rem; }
+
+        .control-panel {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 100%;
+            max-width: 1100px;
+            margin-bottom: 2rem;
+            box-sizing: border-box;
+        }
+
+        .maps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .map-box h3 { margin-top: 0; color: var(--accent-color); font-size: 1rem; }
+        .map-container { height: 220px; border-radius: 8px; border: 1px solid var(--border-color); }
+
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .input-group { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 220px; }
+        label { font-size: 0.85rem; color: var(--text-muted); }
+        select {
+            padding: 0.6rem 0.8rem;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-main);
+            font-size: 0.95rem;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            width: 100%;
+            max-width: 1100px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .card-title { font-size: 1.1rem; color: var(--accent-color); margin-top: 0; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 0.8rem; font-size: 0.95rem; }
+        .data-label { color: var(--text-muted); }
+        .data-value { font-weight: 600; font-family: monospace; }
+        .live-pulse {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #00ff88;
+            border-radius: 50%;
+            margin-right: 6px;
+            box-shadow: 0 0 8px #00ff88;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>REAL-TIME SATELLITE COMMAND DELAY CALCULATOR</h1>
+        <p><span class="live-pulse"></span>Live Streaming Telemetry & Orbital Delay Predictions</p>
+    </header>
+
+    <section class="control-panel">
+        <div class="maps-grid">
+            <div class="map-box">
+                <h3>1. Select Uplink Ground Station</h3>
+                <div id="uplink-map" class="map-container"></div>
+            </div>
+            <div class="map-box">
+                <h3>2. Select Target Location</h3>
+                <div id="target-map" class="map-container"></div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="input-group">
+                <label>Track Live Satellite (NORAD ID)</label>
+                <select id="sat-select" onchange="fetchRealTimeTelemetry()">
+                    <option value="25544">ISS - International Space Station (25544)</option>
+                    <option value="20580">HST - Hubble Space Telescope (20580)</option>
+                    <option value="25994">TERRA (25994)</option>
+                </select>
+            </div>
+        </div>
+    </section>
+
+    <main class="dashboard-grid">
+        <!-- Uplink Card -->
+        <article class="card">
+            <h2 class="card-title">Uplink Telemetry</h2>
+            <div class="data-row"><span class="data-label">Coordinates</span><span class="data-value" id="res-uplink-coords">--</span></div>
+            <div class="data-row"><span class="data-label">Live Uplink Delay (t1)</span><span class="data-value" id="res-t1-delay">--</span></div>
+            <div class="data-row"><span class="data-label">Current UTC Time</span><span class="data-value" id="res-current-utc">--</span></div>
+        </article>
+
+        <!-- Satellite Live Pass Prediction -->
+        <article class="card">
+            <h2 class="card-title">Target Pass Prediction</h2>
+            <div class="data-row"><span class="data-label">Satellite Name</span><span class="data-value" id="res-sat-name">--</span></div>
+            <div class="data-row"><span class="data-label">Current Sat Lat/Lon</span><span class="data-value" id="res-sat-pos">--</span></div>
+            <div class="data-row"><span class="data-label">Target Pass Day</span><span class="data-value" id="res-target-day" style="color: var(--accent-color);">--</span></div>
+            <div class="data-row"><span class="data-label">Target Pass Time</span><span class="data-value" id="res-target-time">--</span></div>
+            <div class="data-row"><span class="data-label">Countdown to Pass</span><span class="data-value" id="res-time-until">--</span></div>
+        </article>
+
+        <!-- Target & Signal Metrics -->
+        <article class="card">
+            <h2 class="card-title">Latency & Downlink</h2>
+            <div class="data-row"><span class="data-label">Target Coordinates</span><span class="data-value" id="res-target-coords">--</span></div>
+            <div class="data-row"><span class="data-label">Downlink Delay (t2)</span><span class="data-value" id="res-t2-delay">--</span></div>
+            <div class="data-row"><span class="data-label">Total Signal Delay</span><span class="data-value" id="res-total-delay" style="color: var(--accent-color);">--</span></div>
+            <div class="data-row"><span class="data-label">Total Latency (ms)</span><span class="data-value" id="res-total-ms">--</span></div>
+        </article>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Default Uplink Location (Thailand)
+        let uplinkCoords = { lat: 12.985, lng: 96.192 };
+        const uplinkMap = L.map('uplink-map').setView([uplinkCoords.lat, uplinkCoords.lng], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(uplinkMap);
+        let uplinkMarker = L.marker([uplinkCoords.lat, uplinkCoords.lng]).addTo(uplinkMap);
+
+        uplinkMap.on('click', (e) => {
+            uplinkCoords = e.latlng;
+            uplinkMarker.setLatLng(e.latlng);
+            fetchRealTimeTelemetry();
+        });
+
+        // Default Target Location (France)
+        let targetCoords = { lat: 45.989, lng: -2.687 };
+        const targetMap = L.map('target-map').setView([targetCoords.lat, targetCoords.lng], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(targetMap);
+        let targetMarker = L.marker([targetCoords.lat, targetCoords.lng]).addTo(targetMap);
+
+        targetMap.on('click', (e) => {
+            targetCoords = e.latlng;
+            targetMarker.setLatLng(e.latlng);
+            fetchRealTimeTelemetry();
+        });
+
+        async function fetchRealTimeTelemetry() {
+            const payload = {
+                uplink_lat: uplinkCoords.lat,
+                uplink_lon: uplinkCoords.lng,
+                target_lat: targetCoords.lat,
+                target_lon: targetCoords.lng,
+                norad_id: document.getElementById('sat-select').value
+            };
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/realtime-telemetry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) return;
+                const data = await response.json();
+
+                // Populate Uplink Telemetry
+                document.getElementById('res-uplink-coords').textContent = `${uplinkCoords.lat.toFixed(2)}°, ${uplinkCoords.lng.toFixed(2)}°`;
+                document.getElementById('res-t1-delay').textContent = data.signal_delays.uplink_delay_t1 + ' (HH:MM:SS)';
+                document.getElementById('res-current-utc').textContent = data.current_utc;
+
+                // Populate Satellite Target Pass Predictions
+                document.getElementById('res-sat-name').textContent = data.satellite;
+                document.getElementById('res-sat-pos').textContent = `${data.sat_position.lat}°, ${data.sat_position.lon}° (${data.sat_position.alt_km} km)`;
+                document.getElementById('res-target-day').textContent = data.target_pass_day;
+                document.getElementById('res-target-time').textContent = data.target_pass_time;
+                document.getElementById('res-time-until').textContent = data.time_until_target_pass_hhmmss + ' (HH:MM:SS)';
+
+                // Populate Target & Delay Metrics
+                document.getElementById('res-target-coords').textContent = `${targetCoords.lat.toFixed(2)}°, ${targetCoords.lng.toFixed(2)}°`;
+                document.getElementById('res-t2-delay').textContent = data.signal_delays.downlink_delay_t2 + ' (HH:MM:SS)';
+                document.getElementById('res-total-delay').textContent = data.signal_delays.total_signal_delay + ' (HH:MM:SS)';
+                document.getElementById('res-total-ms').textContent = data.signal_delays.total_delay_raw_ms + ' ms';
+
+            } catch (err) {
+                console.error('Real-time sync error:', err);
+            }
+        }
+
+        // Initial Fetch
+        fetchRealTimeTelemetry();
+
+        // Stream real-time data every 2 seconds
+        setInterval(fetchRealTimeTelemetry, 2000);
+    </script>
+</body>
+</html>
