@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Satellite Pass & Command Delay Tracker</title>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: #0b0f17; color: #c9d1d9; padding: 18px; min-height: 100vh; }
+
+    .header { text-align: center; margin-bottom: 18px; }
+    .header h1 { color: #38edf8; font-size: 1.8rem; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+    .status-bar { display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 0.85rem; color: #8b949e; }
+    .badge-live { background-color: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid #22c55e; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 0.75rem; }
+
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .card { background-color: #131924; border-radius: 8px; padding: 12px; text-align: center; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); }
+    .card-title { font-size: 0.78rem; font-weight: 600; margin-bottom: 6px; }
+    .card-value { font-size: 1rem; font-weight: bold; color: #ffffff; min-height: 1.4em; }
+
+    .border-yellow { border: 1px solid #eab308; } .border-yellow .card-title { color: #fde047; }
+    .border-green  { border: 1px solid #22c55e; } .border-green .card-title  { color: #4ade80; }
+    .border-red    { border: 1px solid #ef4444; } .border-red .card-title    { color: #f87171; }
+    .border-purple { border: 1px solid #a855f7; } .border-purple .card-title { color: #c084fc; }
+    .border-blue   { border: 1px solid #3b82f6; } .border-blue .card-title   { color: #60a5fa; }
+    .border-pink   { border: 1px solid #ec4899; } .border-pink .card-title   { color: #f472b6; }
+
+    .main-container { display: grid; grid-template-columns: 280px 1fr; gap: 16px; min-height: 520px; }
+    @media (max-width: 850px) { .main-container { grid-template-columns: 1fr; } }
+
+    .control-panel { background-color: #131924; border: 1px solid #21262d; border-radius: 8px; padding: 18px; }
+    .panel-title { font-size: 1rem; color: #f0f6fc; margin-bottom: 14px; border-bottom: 1px solid #21262d; padding-bottom: 6px; }
+    
+    .picker-btn { width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; font-weight: 600; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+    .btn-uplink-pick { background-color: rgba(34, 197, 94, 0.15); color: #4ade80; border-color: #22c55e; }
+    .btn-uplink-pick:hover, .btn-uplink-pick.active { background-color: #22c55e; color: #000; }
+    
+    .btn-target-pick { background-color: rgba(239, 68, 68, 0.15); color: #f87171; border-color: #ef4444; }
+    .btn-target-pick:hover, .btn-target-pick.active { background-color: #ef4444; color: #fff; }
+
+    .input-group { margin-bottom: 10px; }
+    .input-group label { display: block; font-size: 0.8rem; color: #8b949e; margin-bottom: 4px; }
+    .input-group input { width: 100%; background-color: #0b0f17; border: 1px solid #30363d; color: #f0f6fc; padding: 8px 10px; border-radius: 5px; font-size: 0.9rem; }
+    .input-group input:focus { border-color: #38edf8; outline: none; }
+    
+    .btn-apply { width: 100%; background-color: #238636; color: #ffffff; border: none; padding: 10px; border-radius: 5px; font-weight: bold; cursor: pointer; margin-top: 8px; }
+    .btn-apply:hover { background-color: #2ea043; }
+
+    .map-wrapper { position: relative; width: 100%; height: 100%; min-height: 520px; border-radius: 8px; overflow: hidden; border: 1px solid #21262d; }
+    #map { width: 100%; height: 100%; min-height: 520px; }
+
+    .map-legend {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(11, 15, 23, 0.88); backdrop-filter: blur(4px);
+      padding: 8px 18px; border-radius: 20px; border: 1px solid #30363d;
+      display: flex; gap: 16px; font-size: 0.78rem; z-index: 1000; color: #c9d1d9;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-line { width: 20px; height: 3px; border-radius: 2px; }
+    .line-past { background-color: #8b949e; }
+    .line-future { border-top: 2px dashed #38edf8; height: 0; }
+    .line-target { border-top: 3px dashed #ef4444; height: 0; }
+    .circle-camera { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #eab308; background-color: rgba(234, 179, 8, 0.4); }
+
+    .custom-pin { display: flex; align-items: center; justify-content: center; cursor: grab; }
+    .custom-pin:active { cursor: grabbing; }
+    .pin-uplink-dot { width: 18px; height: 18px; border-radius: 50%; background-color: #22c55e; border: 2px solid #ffffff; box-shadow: 0 0 10px #22c55e; }
+    .pin-target-dot { width: 18px; height: 18px; border-radius: 50%; background-color: #ef4444; border: 2px solid #ffffff; box-shadow: 0 0 10px #ef4444; }
+
+    /* Custom Leaflet Tooltip for Path Mouse Hover */
+    .leaflet-tooltip.path-hover-tooltip {
+      background-color: #131924;
+      border: 1px solid #ef4444;
+      color: #f0f6fc;
+      font-size: 0.82rem;
+      border-radius: 6px;
+      padding: 8px 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    }
+    .leaflet-tooltip-top:before { border-top-color: #ef4444; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Satellite Mission & Command Telemetry</h1>
+    <div class="status-bar">
+      <span class="badge-live">● REAL-TIME SYSTEM ONLINE</span>
+      <span id="bkk-clock">Time: Initializing...</span>
+    </div>
+  </div>
+
+  <div class="cards-grid">
+    <div class="card border-yellow">
+      <div class="card-title">⚡ Command Signal Delay (Uplink)</div>
+      <div class="card-value" id="val-delay">Calculating...</div>
+    </div>
+    <div class="card border-green">
+      <div class="card-title">🟢 Next Uplink Pass Time</div>
+      <div class="card-value" id="val-uplink-pass">Calculating...</div>
+    </div>
+    <div class="card border-red">
+      <div class="card-title">🔴 Next Target Pass Time</div>
+      <div class="card-value" id="val-target-pass">Calculating...</div>
+    </div>
+    <div class="card border-purple">
+      <div class="card-title">🚀 Transit (Uplink → Target)</div>
+      <div class="card-value" id="val-transit">Calculating...</div>
+    </div>
+    <div class="card border-blue">
+      <div class="card-title">📡 Return to Uplink (Info Gather)</div>
+      <div class="card-value" id="val-return">Calculating...</div>
+    </div>
+    <div class="card border-pink">
+      <div class="card-title">🎯 Future Peak Elevation at Target</div>
+      <div class="card-value" id="val-sun-elev">Calculating...</div>
+    </div>
+  </div>
+
+  <div class="main-container">
+    <div class="control-panel">
+      <div class="panel-title">Coordinates Setup</div>
+
+      <button class="picker-btn btn-uplink-pick" id="btn-pick-uplink" onclick="togglePicker('uplink')">📍 Pick Uplink on Map</button>
+      
+      <div class="input-group">
+        <label for="uplink-lat">Uplink Lat</label>
+        <input type="number" step="any" id="uplink-lat" value="13.7563">
+      </div>
+      <div class="input-group">
+        <label for="uplink-lon">Uplink Lon</label>
+        <input type="number" step="any" id="uplink-lon" value="100.5018">
+      </div>
+
+      <button class="picker-btn btn-target-pick" id="btn-pick-target" onclick="togglePicker('target')">🎯 Pick Target on Map</button>
+
+      <div class="input-group">
+        <label for="target-lat">Target Lat</label>
+        <input type="number" step="any" id="target-lat" value="48.8566">
+      </div>
+      <div class="input-group">
+        <label for="target-lon">Target Lon</label>
+        <input type="number" step="any" id="target-lon" value="2.3522">
+      </div>
+
+      <div class="input-group">
+        <label for="norad-id">NORAD ID</label>
+        <input type="text" id="norad-id" value="67683">
+      </div>
+
+      <button class="btn-apply" onclick="fetchTelemetry()">Update Parameters</button>
+    </div>
+
+    <div class="map-wrapper">
+      <div id="map"></div>
+      
+      <div class="map-legend">
+        <div class="legend-item"><div class="legend-line line-past"></div> Past Orbit</div>
+        <div class="legend-item"><div class="legend-line line-future"></div> Future Orbit</div>
+        <div class="legend-item"><div class="legend-line line-target"></div> Target Pass Path</div>
+        <div class="legend-item"><div class="circle-camera"></div> Camera FOV (~6°)</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <script>
+    const API_ENDPOINT = "http://127.0.0.1:5000/api/realtime-telemetry";
+
+    const map = L.map('map').setView([20.0, 30.0], 3);
+
+    const googleRoadmap = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20, subdomains: ['mt0','mt1','mt2','mt3']
+    });
+    const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+      maxZoom: 20, subdomains: ['mt0','mt1','mt2','mt3']
+    });
+
+    googleHybrid.addTo(map);
+
+    L.control.layers({
+      "Google Hybrid": googleHybrid,
+      "Google Roadmap": googleRoadmap
+    }).addTo(map);
+
+    const uplinkIcon = L.divIcon({
+      className: 'custom-pin',
+      html: '<div class="pin-uplink-dot"></div>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
+    });
+
+    const targetIcon = L.divIcon({
+      className: 'custom-pin',
+      html: '<div class="pin-target-dot"></div>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
+    });
+
+    let uplinkMarker = L.marker([13.7563, 100.5018], { icon: uplinkIcon, draggable: true }).addTo(map);
+    let targetMarker = L.marker([48.8566, 2.3522], { icon: targetIcon, draggable: true }).addTo(map);
+
+    uplinkMarker.on('dragend', function(e) {
+      const pos = e.target.getLatLng();
+      document.getElementById("uplink-lat").value = pos.lat.toFixed(4);
+      document.getElementById("uplink-lon").value = pos.lng.toFixed(4);
+      fetchTelemetry();
+    });
+
+    targetMarker.on('dragend', function(e) {
+      const pos = e.target.getLatLng();
+      document.getElementById("target-lat").value = pos.lat.toFixed(4);
+      document.getElementById("target-lon").value = pos.lng.toFixed(4);
+      fetchTelemetry();
+    });
+
+    let activePicker = null;
+
+    function togglePicker(mode) {
+      activePicker = (activePicker === mode) ? null : mode;
+      document.getElementById("btn-pick-uplink").classList.toggle("active", activePicker === 'uplink');
+      document.getElementById("btn-pick-target").classList.toggle("active", activePicker === 'target');
+      map.getContainer().style.cursor = activePicker ? 'crosshair' : '';
+    }
+
+    map.on('click', function(e) {
+      if (activePicker === 'uplink') {
+        document.getElementById("uplink-lat").value = e.latlng.lat.toFixed(4);
+        document.getElementById("uplink-lon").value = e.latlng.lng.toFixed(4);
+        uplinkMarker.setLatLng(e.latlng);
+        togglePicker(null);
+        fetchTelemetry();
+      } else if (activePicker === 'target') {
+        document.getElementById("target-lat").value = e.latlng.lat.toFixed(4);
+        document.getElementById("target-lon").value = e.latlng.lng.toFixed(4);
+        targetMarker.setLatLng(e.latlng);
+        togglePicker(null);
+        fetchTelemetry();
+      }
+    });
+
+    let satMarker = null;
+    let cameraFootprint = null;
+    let rfFootprint = null;
+
+    let pastOrbitGroup = L.featureGroup().addTo(map);
+    let futureOrbitGroup = L.featureGroup().addTo(map);
+    let targetPassGroup = L.featureGroup().addTo(map);
+
+    function splitPathAtAntimeridian(coords) {
+      const segments = [];
+      if (!coords || coords.length === 0) return segments;
+
+      let currentSegment = [coords[0]];
+      for (let i = 1; i < coords.length; i++) {
+        const prev = coords[i - 1];
+        const curr = coords[i];
+        if (Math.abs(curr[1] - prev[1]) > 180) {
+          segments.push(currentSegment);
+          currentSegment = [];
+        }
+        currentSegment.push(curr);
+      }
+      if (currentSegment.length > 0) segments.push(currentSegment);
+      return segments;
+    }
+
+    function renderOrbitPath(featureGroup, pathCoords, styleOptions, hoverHtml = null) {
+      featureGroup.clearLayers();
+      const segments = splitPathAtAntimeridian(pathCoords);
+      segments.forEach(seg => {
+        if (seg.length > 1) {
+          const polyline = L.polyline(seg, styleOptions);
+          
+          if (hoverHtml) {
+            polyline.bindTooltip(hoverHtml, {
+              sticky: true,
+              className: 'path-hover-tooltip'
+            });
+            
+            // Highlight path line on mouseover
+            polyline.on('mouseover', function() {
+              this.setStyle({ weight: (styleOptions.weight || 3) + 3, opacity: 1.0 });
+            });
+            polyline.on('mouseout', function() {
+              this.setStyle(styleOptions);
+            });
+          }
+          
+          polyline.addTo(featureGroup);
+        }
+      });
+    }
+
+    async function fetchTelemetry() {
+      const uLat = parseFloat(document.getElementById("uplink-lat").value);
+      const uLon = parseFloat(document.getElementById("uplink-lon").value);
+      const tLat = parseFloat(document.getElementById("target-lat").value);
+      const tLon = parseFloat(document.getElementById("target-lon").value);
+      const noradId = document.getElementById("norad-id").value;
+
+      uplinkMarker.setLatLng([uLat, uLon]);
+      targetMarker.setLatLng([tLat, tLon]);
+
+      try {
+        const response = await fetch(API_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uplink_lat: uLat,
+            uplink_lon: uLon,
+            target_lat: tLat,
+            target_lon: tLon,
+            norad_id: noradId
+          })
+        });
+
+        if (!response.ok) throw new Error("Server error");
+        const data = await response.json();
+
+        document.getElementById("bkk-clock").innerText = `BKK Time: ${data.timestamp_bkk}`;
+
+        const t = data.telemetry;
+        document.getElementById("val-delay").innerText = t.command_delay;
+        document.getElementById("val-uplink-pass").innerText = t.next_uplink_pass;
+        document.getElementById("val-target-pass").innerText = t.next_target_pass;
+        document.getElementById("val-transit").innerText = t.transit_duration;
+        document.getElementById("val-return").innerText = t.return_to_uplink;
+        document.getElementById("val-sun-elev").innerText = t.sun_elevation;
+
+        if (data.orbit_paths) {
+          renderOrbitPath(pastOrbitGroup, data.orbit_paths.past_orbit, { color: '#8b949e', weight: 2, opacity: 0.8 });
+          renderOrbitPath(futureOrbitGroup, data.orbit_paths.future_orbit, { color: '#38edf8', weight: 2.5, opacity: 0.9, dashArray: '6, 8' });
+          
+          // Hover Tooltip Info HTML for Target Pass Trajectory
+          const targetHoverInfo = `
+            <div style="font-weight:bold; color:#f87171; margin-bottom:4px;">🎯 Target Imaging Orbit Pass</div>
+            <b>Satellite:</b> ${data.satellite.name} (${data.satellite.norad_id})<br>
+            <b>Peak Pass Time:</b> ${t.next_target_pass}<br>
+            <b>Sun Elevation:</b> ${t.sun_elevation}<br>
+            <b>Target Coords:</b> Lat ${tLat.toFixed(4)}°, Lon ${tLon.toFixed(4)}°
+          `;
+
+          renderOrbitPath(
+            targetPassGroup,
+            data.orbit_paths.target_pass_orbit,
+            { color: '#ef4444', weight: 4, opacity: 0.9, dashArray: '8, 8' },
+            targetHoverInfo
+          );
+        }
+
+        if (data.current_sat_position) {
+          const pos = [data.current_sat_position.lat, data.current_sat_position.lon];
+          const cameraRadiusM = data.current_sat_position.camera_swath_radius_m || 26200;
+          const rfRadiusM = data.current_sat_position.rf_footprint_radius_m || 2200000;
+
+          if (!satMarker) {
+            satMarker = L.circleMarker(pos, { color: '#38edf8', radius: 7, fillColor: '#38edf8', fillOpacity: 1 }).addTo(map);
+          } else {
+            satMarker.setLatLng(pos);
+          }
+          satMarker.bindPopup(`<b>${data.satellite.name}</b><br>Alt: ${data.current_sat_position.alt_km} km<br>Camera Swath Radius (~6° FOV): ${(cameraRadiusM/1000).toFixed(1)} km`);
+
+          if (!cameraFootprint) {
+            cameraFootprint = L.circle(pos, {
+              radius: cameraRadiusM,
+              color: '#eab308',
+              weight: 2,
+              fillColor: '#eab308',
+              fillOpacity: 0.45
+            }).addTo(map);
+          } else {
+            cameraFootprint.setLatLng(pos);
+            cameraFootprint.setRadius(cameraRadiusM);
+          }
+
+          if (!rfFootprint) {
+            rfFootprint = L.circle(pos, {
+              radius: rfRadiusM,
+              color: '#38edf8',
+              weight: 1,
+              fillColor: '#38edf8',
+              fillOpacity: 0.08
+            }).addTo(map);
+          } else {
+            rfFootprint.setLatLng(pos);
+            rfFootprint.setRadius(rfRadiusM);
+          }
+        }
+      } catch (err) {
+        console.error("Telemetry update error:", err);
+      }
+    }
+
+    setInterval(fetchTelemetry, 5000);
+    fetchTelemetry();
+  </script>
+</body>
+</html>
